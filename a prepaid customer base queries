@@ -1,0 +1,86 @@
+/* 
+Data: sandbox_activations.csv
+
+Skills used: window functions, CTE's, date filtering, logical operations, conditional aggregation
+
+*/
+
+-- Extract active clients at the 2013-06-19.
+
+SELECT account_id, activation_date, deletion_date
+FROM sandbox_activations
+WHERE DATE(activation_date) <= '2013-06-19'
+	AND (DATE(deletion_date) > '2013-06-19');
+
+
+-- How many clients were activated and deactivated during June of 2013?
+
+SELECT 
+	SUM(CASE WHEN activation_date BETWEEN '2013-06-01' AND '2013-06-30' THEN 1 ELSE 0 END) AS activated_june,
+	SUM(CASE WHEN deletion_date BETWEEN '2013-06-01' AND '2013-06-30' THEN 1 ELSE 0 END) AS deactivated_june
+FROM sandbox_activations;
+
+
+-- How many active clients had more than one SIM card on 2013-06-19 (unique client identified by using unique device information)?
+
+SELECT COUNT(DISTINCT imei_a) AS clients_with_multiple_sim_cards
+FROM (
+  SELECT imei_a
+  FROM sandbox_activations
+  WHERE activation_date <= '2013-06-19'
+  	AND (deletion_date > '2013-06-19')
+  GROUP BY imei_a
+  HAVING COUNT(DISTINCT account_id) > 1
+) AS active_clients_with_multiple_sims;
+
+
+-- Select currently active clients and pick up top 5 device brands by each phone type.
+
+WITH ActiveClients AS (
+  SELECT *
+  FROM sandbox_activations
+  WHERE status = 'ACTIVE'
+  ), CountBrands AS (
+    SELECT device_type, device_brand, 
+    COUNT(*) AS brand_count,
+    ROW_NUMBER() OVER (PARTITION BY device_type ORDER BY COUNT(*) DESC) AS rank
+    FROM ActiveClients
+    GROUP BY device_type, device_brand
+    )
+    SELECT device_type, device_brand, brand_count
+    FROM CountBrands
+    WHERE rank < 6
+    ORDER BY device_type, device_brand DESC;
+    
+    
+-- Provide a new column for currently active clients. 
+-- New column should have the value of IMEI if the client is the first who used this IMEI. 
+-- If the client is not the first one, then column value should be 'Multi SIM'.
+
+SELECT *,
+	CASE 
+    	WHEN ROW_NUMBER() OVER(PARTITION BY imei_a ORDER BY activation_date) = 1 THEN imei_a
+        ELSE 'Multi SIM'
+    END AS imei_status
+FROM sandbox_activations
+WHERE status = 'ACTIVE';
+
+
+/* Rebuild the table into an IMEI history query where you could track the history of the
+reuse of the device. This table/query should have the columns:
+-- imei
+-- msisdn
+-- device_brand
+-- device_model
+-- imei_eff_dt - the date when msisdn is used with the IMEI
+-- imei_end_dt - the date when new other msisdn reused the phone.*/
+
+WITH IMEI_history AS (
+	SELECT imei_a AS imei, msisdn, device_brand, device_model, activation_date AS imei_eff_dt,
+    	LEAD(activation_date, 1, NULL) OVER (PARTITION BY imei_a ORDER BY activation_date) AS imei_end_dt
+    FROM sandbox_activations
+    WHERE status = 'ACTIVE'
+    )
+    SELECT imei, msisdn, device_brand, device_model, imei_eff_dt, imei_end_dt
+    FROM IMEI_history;
+ 
