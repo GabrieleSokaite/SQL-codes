@@ -1,3 +1,9 @@
+/*
+
+Skills used: table creation and data insertion, filtering, joining, grouping and aggregation, sorting, limiting, using aliases.
+
+*/
+
 CREATE TABLE cars (
 car_id INT PRIMARY KEY,
 make VARCHAR(50),
